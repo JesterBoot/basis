@@ -1,19 +1,17 @@
 [project]
-name = "nevis-backend"
+name = "basis-backend"
 version = "0.1.0"
 description = "MVP for the Basis home task"
 readme = "README.md"
 requires-python = ">=3.13,<3.14"
 dependencies = [
     "alembic>=1.14,<2",
-    "email-validator>=2.2,<3",
     "fastapi>=0.115,<1",
     "greenlet>=3,<4",
     "psycopg[binary]>=3.2,<4",
     "python-dotenv>=1.0,<2",
     "pydantic-settings>=2.6,<3",
     "sqlalchemy>=2,<3",
-    "sqlmodel>=0.0.27,<0.1",
     "structlog>=26.1.0",
     "uvicorn[standard]>=0.32,<1",
 ]

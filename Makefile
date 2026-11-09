@@ -20,9 +20,6 @@ format:
 sort-imports:
 	cd src && uv run ruff check . --fix --select I
 
-test:
-	$(UV) run pytest -m "not semantic"
-
 test-all:
 	$(UV) run pytest
 

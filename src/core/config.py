@@ -69,12 +69,6 @@ class Settings(BaseSettings):
     def validate_limits(self) -> "Settings":
         if not self.database_url.startswith(("postgresql://", "postgresql+psycopg://")):
             raise ValueError("DATABASE_URL must use PostgreSQL with the psycopg driver")
-        if self.chunk_overlap >= self.chunk_size:
-            raise ValueError("chunk_overlap must be smaller than chunk_size")
-        if self.search_limit_default > self.search_limit_max:
-            raise ValueError("search_limit_default must not exceed search_limit_max")
-        if self.chunk_size > self.max_document_chars:
-            raise ValueError("chunk_size must not exceed max_document_chars")
         return self
 
 

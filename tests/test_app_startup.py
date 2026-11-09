@@ -16,7 +16,6 @@ def test_application_imports_without_database_connection() -> None:
     assert docs_response.status_code == 200
     assert response.json()["info"]["title"] == "Basis Backend API"
     assert response.json()["info"]["version"] == "0.1.0"
-    assert "/clients" in response.json()["paths"]
     assert "/health/live" in response.json()["paths"]
 
 

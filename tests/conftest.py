@@ -12,7 +12,6 @@ from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 from core.config import Settings, get_settings
 from db import session as database_session
 from db.session import AsyncSession, build_async_engine
-from models import Client, Document, DocumentChunk
 from tests.support.database import (
     build_test_database_url,
     database_name,
@@ -133,9 +132,6 @@ async def session(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> AsyncIterator[AsyncSession]:
     async with session_factory() as database_session:
-        await database_session.exec(delete(DocumentChunk))
-        await database_session.exec(delete(Document))
-        await database_session.exec(delete(Client))
         await database_session.commit()
         yield database_session
         await database_session.rollback()

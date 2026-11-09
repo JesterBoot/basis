@@ -1,4 +1,3 @@
 # from models.* import *
 
-__all__ = (
-)
+__all__ = ()
