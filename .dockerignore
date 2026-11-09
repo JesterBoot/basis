@@ -1,0 +1,13 @@
+.git
+.idea
+.venv
+__pycache__
+.pytest_cache
+.ruff_cache
+*.pyc
+*.pyo
+*.egg-info
+tests
+ARCHITECTURE.md
+TASKS.md
+README.md
