@@ -1,3 +1,38 @@
+x-db-env: &db-env
+  POSTGRES_HOST: basis-db
+  POSTGRES_PORT: "5432"
+  POSTGRES_DB: ${POSTGRES_DB:-basis}
+  POSTGRES_USER: ${POSTGRES_USER:-basis}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-basis}
+
+x-rabbitmq-env: &rabbitmq-env
+  RABBITMQ_HOST: rabbitmq
+  RABBITMQ_PORT: "5672"
+  RABBITMQ_USER: ${RABBITMQ_USER:-basis}
+  RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-basis}
+
+x-api-env: &api-env
+  API_HOST: 0.0.0.0
+  API_CONTAINER_PORT: "8080"
+  DEBUG: ${DEBUG:-0}
+  API_KEY: ${API_KEY:-dev_key}
+
+x-worker-env: &worker-env
+  DEBUG: ${DEBUG:-0}
+  DB_POOL_SIZE: "2"
+  DB_MAX_OVERFLOW: "0"
+  OUTBOX_POLL_INTERVAL: ${OUTBOX_POLL_INTERVAL:-0.5}
+  OUTBOX_BATCH_SIZE: ${OUTBOX_BATCH_SIZE:-100}
+  OUTBOX_HEARTBEAT_PATH: /tmp/outbox-relay.heartbeat
+  OUTBOX_PUBLISH_TIMEOUT: ${OUTBOX_PUBLISH_TIMEOUT:-5}
+  OUTBOX_MAX_BACKOFF_SECONDS: ${OUTBOX_MAX_BACKOFF_SECONDS:-60}
+  OUTBOX_ALERT_AFTER_ATTEMPTS: ${OUTBOX_ALERT_AFTER_ATTEMPTS:-10}
+  OUTBOX_LAST_ERROR_MAX_LENGTH: ${OUTBOX_LAST_ERROR_MAX_LENGTH:-1000}
+  OUTBOX_RETENTION_DAYS: ${OUTBOX_RETENTION_DAYS:-7}
+  OUTBOX_PURGE_INTERVAL_SECONDS: ${OUTBOX_PURGE_INTERVAL_SECONDS:-3600}
+  OUTBOX_BACKLOG_LOG_INTERVAL_SECONDS: ${OUTBOX_BACKLOG_LOG_INTERVAL_SECONDS:-30}
+  RABBITMQ_CONNECT_RETRY_MAX_SECONDS: ${RABBITMQ_CONNECT_RETRY_MAX_SECONDS:-30}
+
 services:
   db:
     image: postgres:16-alpine
@@ -42,15 +77,7 @@ services:
       db:
         condition: service_healthy
     environment:
-      POSTGRES_HOST: basis-db
-      POSTGRES_PORT: "5432"
-      POSTGRES_DB: ${POSTGRES_DB:-basis}
-      POSTGRES_USER: ${POSTGRES_USER:-basis}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-basis}
-      API_HOST: 0.0.0.0
-      API_CONTAINER_PORT: "8080"
-      DEBUG: ${DEBUG:-0}
-      API_KEY: ${API_KEY:-dev_key}
+      <<: [*db-env, *api-env]
     ports:
       - "${API_PORT:-8080}:8080"
     volumes:
@@ -66,6 +93,33 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+      start_period: 15s
+
+  outbox-relay:
+    build:
+      context: .
+    entrypoint: ["/app/.venv/bin/python", "-m", "workers.outbox_relay"]
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      <<: [*db-env, *rabbitmq-env, *worker-env]
+    volumes:
+      - ./src:/app/src
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "/app/.venv/bin/python",
+          "-c",
+          "import os, sys, time; sys.exit(time.time() - os.path.getmtime('/tmp/outbox-relay.heartbeat') > 30)",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
       start_period: 15s
 
 volumes:

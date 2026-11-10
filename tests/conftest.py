@@ -2,11 +2,13 @@ import os
 from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
 
+import aio_pika
 import pytest
 import pytest_asyncio
 from alembic import command
 from alembic.config import Config
 from dotenv import load_dotenv
+from faststream.rabbit import RabbitBroker
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
@@ -17,12 +19,21 @@ from db import session as database_session
 from db.base import Base
 from db.session import AsyncSession, build_async_engine
 from main import create_app
+from messaging.broker import build_broker
+from messaging.topology import PaymentsTopology
 from tests.support.api import TEST_API_KEY
 from tests.support.database import (
     build_test_database_url,
     database_name,
     ensure_test_database,
     postgres_server_available,
+)
+from tests.support.rabbitmq import (
+    TEST_RETRY_BASE_DELAY_MS,
+    TEST_VHOST,
+    create_vhost,
+    delete_vhost,
+    rabbitmq_available,
 )
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -47,15 +58,18 @@ def pytest_collection_modifyitems(
     items: list[pytest.Item],
 ) -> None:
     del config
-    if postgres_available():
-        return
-
-    skip_database = pytest.mark.skip(
-        reason="PostgreSQL is unavailable",
-    )
-    for item in items:
-        if item.get_closest_marker("database") is not None:
-            item.add_marker(skip_database)
+    unavailable = {
+        "database": None if postgres_available() else "PostgreSQL is unavailable",
+        "rabbitmq": None
+        if rabbitmq_available(Settings())
+        else "RabbitMQ management API is unavailable",
+    }
+    for marker, reason in unavailable.items():
+        if reason is None:
+            continue
+        for item in items:
+            if item.get_closest_marker(marker) is not None:
+                item.add_marker(pytest.mark.skip(reason=reason))
 
 
 def _alembic_config() -> Config:
@@ -163,3 +177,38 @@ async def client() -> AsyncIterator[AsyncClient]:
         headers={"X-API-Key": TEST_API_KEY},
     ) as http_client:
         yield http_client
+
+
+@pytest.fixture(scope="session")
+def rabbitmq_settings() -> Iterator[Settings]:
+    settings = Settings(
+        RABBITMQ_VHOST=TEST_VHOST, RETRY_BASE_DELAY_MS=TEST_RETRY_BASE_DELAY_MS
+    )
+    delete_vhost(settings, TEST_VHOST)
+    create_vhost(settings, TEST_VHOST)
+    yield settings
+    delete_vhost(settings, TEST_VHOST)
+
+
+@pytest_asyncio.fixture
+async def amqp_channel(
+    rabbitmq_settings: Settings,
+) -> AsyncIterator[aio_pika.abc.AbstractChannel]:
+    connection = await aio_pika.connect_robust(rabbitmq_settings.rabbitmq_url)
+    async with connection:
+        yield await connection.channel()
+
+
+@pytest_asyncio.fixture
+async def broker(
+    rabbitmq_settings: Settings, amqp_channel: aio_pika.abc.AbstractChannel
+) -> AsyncIterator[RabbitBroker]:
+    rabbit_broker = build_broker(rabbitmq_settings)
+    await rabbit_broker.connect()
+    topology = PaymentsTopology(rabbitmq_settings)
+    await topology.declare(rabbit_broker)
+    for queue in topology.queues:
+        declared = await amqp_channel.get_queue(queue.name)
+        await declared.purge()
+    yield rabbit_broker
+    await rabbit_broker.stop()

@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import ValidationError
 
-from messaging.names import Exchange, Queue, RoutingKey
+from messaging.names import Exchange, Header, Queue, RoutingKey
 from models import AggregateType, EventType
 from schemas.events import PaymentCreatedEvent
 
@@ -64,6 +64,7 @@ def test_enum_values_match_spec() -> None:
     assert Queue.PAYMENTS_DLQ == "payments.new.dlq"
     assert RoutingKey.PAYMENTS_NEW == "payments.new"
     assert RoutingKey.PAYMENTS_DLQ == "payments.new.dlq"
+    assert Header.ATTEMPT == "x-attempt"
 
 
 def test_messaging_names_are_plain_strings() -> None:

@@ -94,6 +94,9 @@ class Settings(BaseSettings):
         default="basis", validation_alias="RABBITMQ_PASSWORD"
     )
     rabbitmq_vhost: str = Field(default="/", validation_alias="RABBITMQ_VHOST")
+    rabbitmq_connect_retry_max_seconds: float = Field(
+        default=30, gt=0, validation_alias="RABBITMQ_CONNECT_RETRY_MAX_SECONDS"
+    )
 
     # Outbox relay
     outbox_poll_interval: float = Field(
@@ -104,6 +107,27 @@ class Settings(BaseSettings):
     )
     outbox_retention_days: int = Field(
         default=7, gt=0, validation_alias="OUTBOX_RETENTION_DAYS"
+    )
+    outbox_publish_timeout: float = Field(
+        default=5.0, gt=0, validation_alias="OUTBOX_PUBLISH_TIMEOUT"
+    )
+    outbox_heartbeat_path: str = Field(
+        default="/tmp/outbox-relay.heartbeat", validation_alias="OUTBOX_HEARTBEAT_PATH"
+    )
+    outbox_max_backoff_seconds: int = Field(
+        default=60, gt=0, le=86_400, validation_alias="OUTBOX_MAX_BACKOFF_SECONDS"
+    )
+    outbox_alert_after_attempts: int = Field(
+        default=10, gt=0, validation_alias="OUTBOX_ALERT_AFTER_ATTEMPTS"
+    )
+    outbox_last_error_max_length: int = Field(
+        default=1000, gt=0, le=10_000, validation_alias="OUTBOX_LAST_ERROR_MAX_LENGTH"
+    )
+    outbox_purge_interval_seconds: float = Field(
+        default=3600, gt=0, validation_alias="OUTBOX_PURGE_INTERVAL_SECONDS"
+    )
+    outbox_backlog_log_interval_seconds: float = Field(
+        default=30, gt=0, validation_alias="OUTBOX_BACKLOG_LOG_INTERVAL_SECONDS"
     )
 
     # Consumer

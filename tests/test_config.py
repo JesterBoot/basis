@@ -162,3 +162,15 @@ def test_non_psycopg_postgres_urls_are_rejected(
 
     with pytest.raises(ValidationError, match="PostgreSQL with the psycopg driver"):
         Settings(_env_file=None)
+
+
+def test_outbox_relay_defaults(clean_env: pytest.MonkeyPatch) -> None:
+    settings = Settings(_env_file=None)
+
+    assert settings.outbox_publish_timeout == 5
+    assert settings.outbox_max_backoff_seconds == 60
+    assert settings.outbox_alert_after_attempts == 10
+    assert settings.outbox_last_error_max_length == 1000
+    assert settings.outbox_purge_interval_seconds == 3600
+    assert settings.outbox_backlog_log_interval_seconds == 30
+    assert settings.rabbitmq_connect_retry_max_seconds == 30

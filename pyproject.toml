@@ -16,6 +16,7 @@ dependencies = [
     "uvicorn[standard]>=0.32,<1",
     "faststream[rabbit]>=0.7.8,<0.8",
     "httpx>=0.28,<1",
+    "tenacity>=9,<10",
 ]
 
 
@@ -35,13 +36,14 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["api*", "core*", "db*", "messaging*", "models*", "schemas*", "services*", "utils*"]
+include = ["api*", "core*", "db*", "messaging*", "models*", "schemas*", "services*", "utils*", "workers*"]
 
 [tool.pytest.ini_options]
 addopts = "-q"
 asyncio_mode = "auto"
 markers = [
     "database: tests requiring a PostgreSQL database",
+    "rabbitmq: tests requiring a RabbitMQ broker with the management API",
 ]
 pythonpath = ["src", "."]
 testpaths = ["tests"]
