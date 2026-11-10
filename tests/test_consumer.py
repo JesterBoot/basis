@@ -289,3 +289,80 @@ async def test_database_outage_exhausts_retries_and_keeps_payment_pending(
     assert payment is not None
     assert payment.status is PaymentStatus.PENDING
     assert payment.webhook_status is WebhookStatus.PENDING
+
+
+async def wait_until(predicate: Callable[[], bool], timeout: float = 5) -> None:
+    deadline = time.monotonic() + timeout
+    while not predicate():
+        if time.monotonic() > deadline:
+            raise AssertionError("Condition not met in time")
+        await asyncio.sleep(0.02)
+
+
+async def test_graceful_stop_finishes_in_flight_payment(
+    session: AsyncSession,
+    broker: RabbitBroker,
+    amqp_channel: aio_pika.abc.AbstractChannel,
+    settings: Settings,
+    respx_mock: respx.MockRouter,
+) -> None:
+    respx_mock.post(WEBHOOK_URL).mock(return_value=httpx.Response(200))
+    gateway = FakeGateway(PaymentStatus.SUCCEEDED, delay=1.0)
+    graceful = settings.model_copy(update={"consumer_graceful_timeout": 5})
+
+    async with WebhookClient.from_settings(graceful) as webhook_client:
+        consumer = create_consumer(
+            graceful, PaymentPipeline(gateway, webhook_client, graceful)
+        )
+        await consumer.start()
+        (payment_id,) = await create_and_relay(session, broker, graceful)
+        await wait_until(lambda: bool(gateway.charged))
+        await consumer.stop()
+
+    payment = await session.get(Payment, payment_id, populate_existing=True)
+    assert payment is not None
+    assert payment.status is PaymentStatus.SUCCEEDED
+    assert payment.webhook_status is WebhookStatus.DELIVERED
+    assert await queue_depth(amqp_channel, Queue.PAYMENTS_NEW) == 0
+
+
+async def test_unfinished_message_is_redelivered_and_processed_once(
+    session: AsyncSession,
+    broker: RabbitBroker,
+    amqp_channel: aio_pika.abc.AbstractChannel,
+    settings: Settings,
+    respx_mock: respx.MockRouter,
+) -> None:
+    route = respx_mock.post(WEBHOOK_URL).mock(return_value=httpx.Response(200))
+    slow_gateway = FakeGateway(PaymentStatus.FAILED, delay=3.0)
+    impatient = settings.model_copy(update={"consumer_graceful_timeout": 0.2})
+
+    async with WebhookClient.from_settings(impatient) as webhook_client:
+        first = create_consumer(
+            impatient, PaymentPipeline(slow_gateway, webhook_client, impatient)
+        )
+        await first.start()
+        (payment_id,) = await create_and_relay(session, broker, impatient)
+        await wait_until(lambda: bool(slow_gateway.charged))
+        await first.stop()
+
+    still_pending = await session.get(Payment, payment_id, populate_existing=True)
+    assert still_pending is not None
+    assert still_pending.status is PaymentStatus.PENDING
+
+    fast_gateway = FakeGateway(PaymentStatus.SUCCEEDED)
+    async with running_consumer(settings, fast_gateway):
+        (payment,) = await wait_for(
+            session,
+            [payment_id],
+            lambda p: p.webhook_status is WebhookStatus.DELIVERED,
+        )
+        await asyncio.sleep(3.2)
+
+    final = await session.get(Payment, payment_id, populate_existing=True)
+    assert final is not None
+    assert payment.status is PaymentStatus.SUCCEEDED
+    assert final.status is PaymentStatus.SUCCEEDED
+    assert fast_gateway.charged == [payment_id]
+    assert route.call_count == 1
+    assert await queue_depth(amqp_channel, Queue.PAYMENTS_NEW) == 0

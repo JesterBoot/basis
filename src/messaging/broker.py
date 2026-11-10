@@ -19,11 +19,14 @@ logger = get_logger()
 
 
 def build_broker(
-    settings: Settings | None = None, prefetch: int | None = None
+    settings: Settings | None = None,
+    prefetch: int | None = None,
+    graceful_timeout: float | None = None,
 ) -> RabbitBroker:
     resolved = settings or get_settings()
     return RabbitBroker(
         resolved.rabbitmq_url,
+        graceful_timeout=graceful_timeout,
         default_channel=Channel(
             prefetch_count=prefetch, publisher_confirms=True, on_return_raises=True
         ),

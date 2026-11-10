@@ -1,4 +1,5 @@
 import asyncio
+from pathlib import Path
 
 from faststream import AckPolicy
 from faststream.rabbit import RabbitBroker
@@ -13,7 +14,7 @@ from schemas.pipeline import PipelineOutcome, PipelineResult
 from services.gateway import MockPaymentGateway
 from services.pipeline import PaymentPipeline
 from services.webhooks import WebhookClient
-from utils.lifecycle import stop_event_on_signals
+from utils.lifecycle import run_heartbeat, stop_event_on_signals
 
 logger = get_logger()
 
@@ -74,13 +75,24 @@ class PaymentConsumer:
 
 
 def create_consumer(settings: Settings, pipeline: PaymentPipeline) -> RabbitBroker:
-    broker = build_broker(settings, prefetch=settings.consumer_prefetch)
+    broker = build_broker(
+        settings,
+        prefetch=settings.consumer_prefetch,
+        graceful_timeout=settings.consumer_graceful_timeout,
+    )
     topology = PaymentsTopology(settings)
     consumer = PaymentConsumer(pipeline, RetryScheduler(broker, settings))
     broker.subscriber(
         topology.new_queue, topology.exchange, ack_policy=AckPolicy.MANUAL
     )(consumer.handle)
     return broker
+
+
+async def broker_is_reachable(broker: RabbitBroker, timeout: float) -> bool:
+    try:
+        return await broker.ping(timeout=timeout)
+    except Exception:  # noqa: BLE001
+        return False
 
 
 async def main() -> None:
@@ -96,9 +108,16 @@ async def main() -> None:
             if await connect_broker(broker, settings, stop):
                 await broker.start()
                 logger.info(
-                    "Payment consumer started", prefetch=settings.consumer_prefetch
+                    "Payment consumer started",
+                    prefetch=settings.consumer_prefetch,
+                    graceful_timeout=settings.consumer_graceful_timeout,
                 )
-                await stop.wait()
+                await run_heartbeat(
+                    Path(settings.consumer_heartbeat_path),
+                    settings.consumer_heartbeat_interval,
+                    stop,
+                    lambda: broker_is_reachable(broker, timeout=5),
+                )
         finally:
             await broker.stop()
             logger.info("Payment consumer stopped")

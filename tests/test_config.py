@@ -174,3 +174,11 @@ def test_outbox_relay_defaults(clean_env: pytest.MonkeyPatch) -> None:
     assert settings.outbox_purge_interval_seconds == 3600
     assert settings.outbox_backlog_log_interval_seconds == 30
     assert settings.rabbitmq_connect_retry_max_seconds == 30
+
+
+def test_consumer_defaults(clean_env: pytest.MonkeyPatch) -> None:
+    settings = Settings(_env_file=None)
+
+    assert settings.consumer_graceful_timeout == 15
+    assert settings.consumer_heartbeat_path == "/tmp/consumer.heartbeat"
+    assert settings.consumer_heartbeat_interval == 10

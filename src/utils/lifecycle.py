@@ -1,5 +1,7 @@
 import asyncio
 import signal
+from collections.abc import Awaitable, Callable
+from pathlib import Path
 
 
 def stop_event_on_signals(
@@ -30,3 +32,15 @@ class Every:
             return False
         self._last = now
         return True
+
+
+async def run_heartbeat(
+    path: Path,
+    interval: float,
+    stop: asyncio.Event,
+    is_healthy: Callable[[], Awaitable[bool]],
+) -> None:
+    while not stop.is_set():
+        if await is_healthy():
+            path.touch()
+        await sleep_unless_stopped(stop, interval)

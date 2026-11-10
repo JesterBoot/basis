@@ -19,19 +19,37 @@ x-api-env: &api-env
 
 x-worker-env: &worker-env
   DEBUG: ${DEBUG:-0}
+  RABBITMQ_CONNECT_RETRY_MAX_SECONDS: ${RABBITMQ_CONNECT_RETRY_MAX_SECONDS:-30}
+  OUTBOX_PUBLISH_TIMEOUT: ${OUTBOX_PUBLISH_TIMEOUT:-5}
+  RETRY_MAX_ATTEMPTS: ${RETRY_MAX_ATTEMPTS:-3}
+  RETRY_BASE_DELAY_MS: ${RETRY_BASE_DELAY_MS:-2000}
+
+x-relay-env: &relay-env
   DB_POOL_SIZE: "2"
   DB_MAX_OVERFLOW: "0"
   OUTBOX_POLL_INTERVAL: ${OUTBOX_POLL_INTERVAL:-0.5}
   OUTBOX_BATCH_SIZE: ${OUTBOX_BATCH_SIZE:-100}
   OUTBOX_HEARTBEAT_PATH: /tmp/outbox-relay.heartbeat
-  OUTBOX_PUBLISH_TIMEOUT: ${OUTBOX_PUBLISH_TIMEOUT:-5}
   OUTBOX_MAX_BACKOFF_SECONDS: ${OUTBOX_MAX_BACKOFF_SECONDS:-60}
   OUTBOX_ALERT_AFTER_ATTEMPTS: ${OUTBOX_ALERT_AFTER_ATTEMPTS:-10}
   OUTBOX_LAST_ERROR_MAX_LENGTH: ${OUTBOX_LAST_ERROR_MAX_LENGTH:-1000}
   OUTBOX_RETENTION_DAYS: ${OUTBOX_RETENTION_DAYS:-7}
   OUTBOX_PURGE_INTERVAL_SECONDS: ${OUTBOX_PURGE_INTERVAL_SECONDS:-3600}
   OUTBOX_BACKLOG_LOG_INTERVAL_SECONDS: ${OUTBOX_BACKLOG_LOG_INTERVAL_SECONDS:-30}
-  RABBITMQ_CONNECT_RETRY_MAX_SECONDS: ${RABBITMQ_CONNECT_RETRY_MAX_SECONDS:-30}
+
+x-consumer-env: &consumer-env
+  DB_POOL_SIZE: "12"
+  DB_MAX_OVERFLOW: "0"
+  CONSUMER_PREFETCH: ${CONSUMER_PREFETCH:-10}
+  CONSUMER_GRACEFUL_TIMEOUT: ${CONSUMER_GRACEFUL_TIMEOUT:-15}
+  CONSUMER_HEARTBEAT_PATH: /tmp/consumer.heartbeat
+  CONSUMER_HEARTBEAT_INTERVAL: ${CONSUMER_HEARTBEAT_INTERVAL:-10}
+  GATEWAY_DELAY_MIN: ${GATEWAY_DELAY_MIN:-2}
+  GATEWAY_DELAY_MAX: ${GATEWAY_DELAY_MAX:-5}
+  GATEWAY_SUCCESS_RATE: ${GATEWAY_SUCCESS_RATE:-0.9}
+  WEBHOOK_SECRET: ${WEBHOOK_SECRET:-dev-webhook-secret}
+  WEBHOOK_ALLOW_PRIVATE: ${WEBHOOK_ALLOW_PRIVATE:-true}
+  WEBHOOK_TIMEOUT: ${WEBHOOK_TIMEOUT:-5}
 
 services:
   db:
@@ -106,7 +124,7 @@ services:
       rabbitmq:
         condition: service_healthy
     environment:
-      <<: [*db-env, *rabbitmq-env, *worker-env]
+      <<: [*db-env, *rabbitmq-env, *worker-env, *relay-env]
     volumes:
       - ./src:/app/src
     healthcheck:
@@ -121,6 +139,34 @@ services:
       timeout: 5s
       retries: 3
       start_period: 15s
+
+  consumer:
+    build:
+      context: .
+    entrypoint: ["/app/.venv/bin/python", "-m", "workers.consumer"]
+    restart: unless-stopped
+    stop_grace_period: 20s
+    depends_on:
+      api:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      <<: [*db-env, *rabbitmq-env, *worker-env, *consumer-env]
+    volumes:
+      - ./src:/app/src
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "/app/.venv/bin/python",
+          "-c",
+          "import os, sys, time; sys.exit(time.time() - os.path.getmtime('/tmp/consumer.heartbeat') > 30)",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
 
 volumes:
   postgres_data:

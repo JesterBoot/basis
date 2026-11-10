@@ -134,6 +134,15 @@ class Settings(BaseSettings):
     consumer_prefetch: int = Field(
         default=10, gt=0, validation_alias="CONSUMER_PREFETCH"
     )
+    consumer_graceful_timeout: float = Field(
+        default=15, gt=0, validation_alias="CONSUMER_GRACEFUL_TIMEOUT"
+    )
+    consumer_heartbeat_path: str = Field(
+        default="/tmp/consumer.heartbeat", validation_alias="CONSUMER_HEARTBEAT_PATH"
+    )
+    consumer_heartbeat_interval: float = Field(
+        default=10, gt=0, validation_alias="CONSUMER_HEARTBEAT_INTERVAL"
+    )
 
     # Mock payment gateway
     gateway_delay_min: float = Field(

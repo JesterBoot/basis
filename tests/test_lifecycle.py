@@ -1,4 +1,5 @@
 import asyncio
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -6,7 +7,7 @@ import pytest
 from core.config import Settings
 from messaging.broker import connect_broker
 from messaging.topology import PaymentsTopology
-from utils.lifecycle import Every, sleep_unless_stopped
+from utils.lifecycle import Every, run_heartbeat, sleep_unless_stopped
 
 
 async def test_sleep_returns_early_when_stopped() -> None:
@@ -96,3 +97,44 @@ async def test_connect_broker_does_not_retry_unexpected_errors(
 
     with pytest.raises(ValueError, match="bad url"):
         await connect_broker(BrokenBroker(), FAST_RETRY, asyncio.Event())  # type: ignore[arg-type]
+
+
+async def test_heartbeat_touches_file_while_healthy(tmp_path: Path) -> None:
+    path = tmp_path / "hb"
+    stop = asyncio.Event()
+    checks = 0
+
+    async def healthy() -> bool:
+        nonlocal checks
+        checks += 1
+        if checks >= 3:
+            stop.set()
+        return True
+
+    await asyncio.wait_for(run_heartbeat(path, 0.01, stop, healthy), timeout=2)
+
+    assert path.exists()
+    assert checks == 3
+
+
+async def test_heartbeat_skips_touch_when_unhealthy(tmp_path: Path) -> None:
+    path = tmp_path / "hb"
+    stop = asyncio.Event()
+
+    async def unhealthy() -> bool:
+        stop.set()
+        return False
+
+    await asyncio.wait_for(run_heartbeat(path, 0.01, stop, unhealthy), timeout=2)
+
+    assert not path.exists()
+
+
+async def test_heartbeat_stops_promptly(tmp_path: Path) -> None:
+    stop = asyncio.Event()
+    asyncio.get_running_loop().call_later(0.05, stop.set)
+
+    async def healthy() -> bool:
+        return True
+
+    await asyncio.wait_for(run_heartbeat(tmp_path / "hb", 60, stop, healthy), timeout=1)
