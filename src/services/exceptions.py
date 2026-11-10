@@ -8,3 +8,15 @@ class IdempotencyKeyReusedError(ServiceError):
 
 class PaymentNotFoundError(ServiceError):
     pass
+
+
+class WebhookDeliveryError(ServiceError):
+    pass
+
+
+class WebhookTransientError(WebhookDeliveryError):
+    pass
+
+
+class WebhookPermanentError(WebhookDeliveryError):
+    pass

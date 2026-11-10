@@ -164,6 +164,12 @@ class Settings(BaseSettings):
     webhook_allow_private: bool = Field(
         default=False, validation_alias="WEBHOOK_ALLOW_PRIVATE"
     )
+    webhook_user_agent: str = Field(
+        default="basis-payments-webhook/1.0", validation_alias="WEBHOOK_USER_AGENT"
+    )
+    webhook_last_error_max_length: int = Field(
+        default=1000, gt=0, le=10_000, validation_alias="WEBHOOK_LAST_ERROR_MAX_LENGTH"
+    )
 
     @property
     def rabbitmq_url(self) -> str:

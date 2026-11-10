@@ -6,7 +6,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert
 
 from db.session import AsyncSession, get_session
-from models import Payment, PaymentStatus
+from models import Payment, PaymentStatus, WebhookStatus
 from schemas.payment import (
     PaymentCreate,
     PaymentCreated,
@@ -72,6 +72,41 @@ class PaymentDataManager(BaseDataManager[Payment]):
             .values(status=status, processed_at=func.now())
             .returning(Payment)
             .execution_options(populate_existing=True)
+        )
+
+    async def record_webhook_attempt(
+        self,
+        payment_id: uuid.UUID,
+        *,
+        status: WebhookStatus | None,
+        error: str | None,
+    ) -> int:
+        values: dict[str, object] = {
+            "webhook_attempts": Payment.webhook_attempts + 1,
+            "webhook_last_error": error,
+        }
+        if status is not None:
+            values["webhook_status"] = status
+        if status is WebhookStatus.DELIVERED:
+            values["webhook_delivered_at"] = func.now()
+        attempts = await self.session.scalar(
+            update(Payment)
+            .where(Payment.id == payment_id)
+            .values(**values)
+            .returning(Payment.webhook_attempts)
+            .execution_options(synchronize_session=False)
+        )
+        return attempts or 0
+
+    async def mark_webhook_failed(self, payment_id: uuid.UUID) -> None:
+        await self.session.execute(
+            update(Payment)
+            .where(
+                Payment.id == payment_id,
+                Payment.webhook_status != WebhookStatus.DELIVERED,
+            )
+            .values(webhook_status=WebhookStatus.FAILED)
+            .execution_options(synchronize_session=False)
         )
 
     async def insert_if_absent(

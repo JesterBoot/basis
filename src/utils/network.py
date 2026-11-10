@@ -1,4 +1,6 @@
+import asyncio
 import ipaddress
+import socket
 
 NAT64_PREFIX = ipaddress.IPv6Network("64:ff9b::/96")
 
@@ -25,3 +27,10 @@ def is_private_host(host: str) -> bool:
     except ValueError:
         return False
     return is_private_address(address)
+
+
+async def resolve_host(host: str, port: int) -> list[IPAddress]:
+    infos = await asyncio.get_running_loop().getaddrinfo(
+        host.strip("[]"), port, type=socket.SOCK_STREAM
+    )
+    return list({ipaddress.ip_address(info[4][0]) for info in infos})
