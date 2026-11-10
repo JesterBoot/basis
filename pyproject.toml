@@ -35,7 +35,7 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["api*", "core*", "db*", "messaging*", "models*", "schemas*", "services*"]
+include = ["api*", "core*", "db*", "messaging*", "models*", "schemas*", "services*", "utils*"]
 
 [tool.pytest.ini_options]
 addopts = "-q"
@@ -49,3 +49,12 @@ testpaths = ["tests"]
 [tool.setuptools]
 package-dir = {"" = "src"}
 py-modules = ["main"]
+
+[tool.coverage.run]
+source = ["src"]
+concurrency = ["greenlet", "thread"]
+omit = ["src/migrations/*"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true

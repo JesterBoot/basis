@@ -20,6 +20,12 @@ WORKER_VARIABLES = (
     "RETRY_BASE_DELAY_MS",
     "WEBHOOK_SECRET",
     "WEBHOOK_ALLOW_PRIVATE",
+    "IDEMPOTENCY_KEY_MAX_LENGTH",
+    "PAYMENT_AMOUNT_MAX_DIGITS",
+    "PAYMENT_AMOUNT_DECIMAL_PLACES",
+    "PAYMENT_DESCRIPTION_MAX_LENGTH",
+    "PAYMENT_METADATA_MAX_BYTES",
+    "WEBHOOK_URL_MAX_LENGTH",
 )
 
 
@@ -107,3 +113,52 @@ def test_single_attempt_means_no_retry_delays(clean_env: pytest.MonkeyPatch) -> 
     clean_env.setenv("RETRY_MAX_ATTEMPTS", "1")
 
     assert Settings(_env_file=None).retry_delays_ms == []
+
+
+def test_payment_limit_defaults_match_database_columns(
+    clean_env: pytest.MonkeyPatch,
+) -> None:
+    settings = Settings(_env_file=None)
+
+    assert settings.idempotency_key_max_length == 255
+    assert settings.payment_amount_max_digits == 18
+    assert settings.payment_amount_decimal_places == 2
+    assert settings.payment_description_max_length == 1000
+    assert settings.payment_metadata_max_bytes == 16 * 1024
+    assert settings.webhook_url_max_length == 2048
+
+
+@pytest.mark.parametrize(
+    ("variable", "value"),
+    [
+        ("IDEMPOTENCY_KEY_MAX_LENGTH", "256"),
+        ("PAYMENT_AMOUNT_MAX_DIGITS", "19"),
+        ("PAYMENT_AMOUNT_DECIMAL_PLACES", "3"),
+        ("PAYMENT_DESCRIPTION_MAX_LENGTH", "1001"),
+        ("WEBHOOK_URL_MAX_LENGTH", "2049"),
+    ],
+)
+def test_payment_limits_cannot_exceed_database_columns(
+    clean_env: pytest.MonkeyPatch, variable: str, value: str
+) -> None:
+    clean_env.setenv(variable, value)
+
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None)
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "sqlite:///basis.db",
+        "mysql://user:pass@db/basis",
+        "postgresql+asyncpg://u:p@db/b",
+    ],
+)
+def test_non_psycopg_postgres_urls_are_rejected(
+    clean_env: pytest.MonkeyPatch, url: str
+) -> None:
+    clean_env.setenv("DATABASE_URL", url)
+
+    with pytest.raises(ValidationError, match="PostgreSQL with the psycopg driver"):
+        Settings(_env_file=None)

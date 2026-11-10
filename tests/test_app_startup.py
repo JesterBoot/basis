@@ -89,8 +89,9 @@ def test_default_settings_are_bootstrap_safe(
     assert settings.debug is False
 
 
-
-def test_settings_can_be_overridden_by_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_settings_can_be_overridden_by_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@db/basis_test")
 
     settings = Settings(_env_file=None)

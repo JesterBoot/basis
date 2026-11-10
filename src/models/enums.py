@@ -17,3 +17,11 @@ class WebhookStatus(StrEnum):
     PENDING = "pending"
     DELIVERED = "delivered"
     FAILED = "failed"
+
+
+class AggregateType(StrEnum):
+    PAYMENT = "payment"
+
+
+class EventType(StrEnum):
+    PAYMENT_CREATED = "payment.created"

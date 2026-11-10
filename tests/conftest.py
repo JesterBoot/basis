@@ -1,3 +1,4 @@
+import os
 from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
 
@@ -6,6 +7,7 @@ import pytest_asyncio
 from alembic import command
 from alembic.config import Config
 from dotenv import load_dotenv
+from httpx import ASGITransport, AsyncClient
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
@@ -14,6 +16,8 @@ from core.config import Settings, get_settings
 from db import session as database_session
 from db.base import Base
 from db.session import AsyncSession, build_async_engine
+from main import create_app
+from tests.support.api import TEST_API_KEY
 from tests.support.database import (
     build_test_database_url,
     database_name,
@@ -23,6 +27,9 @@ from tests.support.database import (
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(override=False)
+os.environ["API_KEY"] = TEST_API_KEY
+os.environ["WEBHOOK_ALLOW_PRIVATE"] = "false"
+get_settings.cache_clear()
 BASE_DATABASE_URL = Settings().database_url
 DATABASE_URL = build_test_database_url(BASE_DATABASE_URL)
 
@@ -109,6 +116,12 @@ async def application_database(migrated_schema: None) -> AsyncIterator[None]:
         await test_engine.dispose()
 
 
+@pytest_asyncio.fixture(autouse=True)
+async def fresh_application_pool() -> AsyncIterator[None]:
+    yield
+    await database_session.engine.dispose()
+
+
 @pytest_asyncio.fixture(scope="session")
 async def async_engine(application_database: None) -> AsyncIterator[AsyncEngine]:
     del application_database
@@ -139,3 +152,14 @@ async def session(
         await database_session.commit()
         yield database_session
         await database_session.rollback()
+
+
+@pytest_asyncio.fixture
+async def client() -> AsyncIterator[AsyncClient]:
+    transport = ASGITransport(app=create_app())
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://testserver",
+        headers={"X-API-Key": TEST_API_KEY},
+    ) as http_client:
+        yield http_client
