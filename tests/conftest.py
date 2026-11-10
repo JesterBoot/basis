@@ -6,11 +6,13 @@ import pytest_asyncio
 from alembic import command
 from alembic.config import Config
 from dotenv import load_dotenv
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
+import models  # noqa: F401
 from core.config import Settings, get_settings
 from db import session as database_session
+from db.base import Base
 from db.session import AsyncSession, build_async_engine
 from tests.support.database import (
     build_test_database_url,
@@ -131,7 +133,9 @@ def session_factory(
 async def session(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> AsyncIterator[AsyncSession]:
+    tables = ", ".join(table.name for table in Base.metadata.sorted_tables)
     async with session_factory() as database_session:
+        await database_session.execute(text(f"TRUNCATE TABLE {tables}"))
         await database_session.commit()
         yield database_session
         await database_session.rollback()
