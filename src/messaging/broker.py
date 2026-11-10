@@ -18,11 +18,15 @@ from utils.lifecycle import sleep_unless_stopped
 logger = get_logger()
 
 
-def build_broker(settings: Settings | None = None) -> RabbitBroker:
+def build_broker(
+    settings: Settings | None = None, prefetch: int | None = None
+) -> RabbitBroker:
     resolved = settings or get_settings()
     return RabbitBroker(
         resolved.rabbitmq_url,
-        default_channel=Channel(publisher_confirms=True, on_return_raises=True),
+        default_channel=Channel(
+            prefetch_count=prefetch, publisher_confirms=True, on_return_raises=True
+        ),
     )
 
 
