@@ -35,7 +35,7 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["api*", "core*", "db*", "models*", "schemas*", "services*"]
+include = ["api*", "core*", "db*", "messaging*", "models*", "schemas*", "services*"]
 
 [tool.pytest.ini_options]
 addopts = "-q"

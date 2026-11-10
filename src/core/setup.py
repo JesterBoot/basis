@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from api.errors import register_error_handlers
 from api.router import api_router
 from core.config import get_settings
 from core.custom_logging import configure_logging
@@ -16,6 +17,9 @@ def create_app() -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(application: FastAPI) -> AsyncIterator[None]:
+        api_key = get_settings().api_key
+        if api_key is None or not api_key.get_secret_value().strip():
+            raise RuntimeError("API_KEY must be set to start the API")
         application.state.startup_ok = await check_startup_dependencies()
         yield
 
@@ -28,4 +32,5 @@ def create_app() -> FastAPI:
     application.state.startup_ok = False
     application.state.settings = settings
     application.include_router(api_router)
+    register_error_handlers(application)
     return application

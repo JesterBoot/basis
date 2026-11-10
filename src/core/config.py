@@ -13,6 +13,8 @@ class Settings(BaseSettings):
         case_sensitive=False,
         populate_by_name=True,
     )
+
+    # App
     debug: bool = Field(
         default=False,
         validation_alias="DEBUG",
@@ -54,8 +56,36 @@ class Settings(BaseSettings):
     db_pool_recycle: int = Field(default=1_800, gt=0)
     db_pool_pre_ping: bool = True
 
+    # API
     api_key: SecretStr | None = Field(default=None, validation_alias="API_KEY")
 
+    # Payment validation
+    idempotency_key_pattern: str = Field(
+        default=r"^[A-Za-z0-9_\-:.]+$", validation_alias="IDEMPOTENCY_KEY_PATTERN"
+    )
+    idempotency_key_max_length: int = Field(
+        default=255, gt=0, le=255, validation_alias="IDEMPOTENCY_KEY_MAX_LENGTH"
+    )
+    payment_amount_max_digits: int = Field(
+        default=18, gt=2, le=18, validation_alias="PAYMENT_AMOUNT_MAX_DIGITS"
+    )
+    payment_amount_decimal_places: int = Field(
+        default=2, ge=0, le=2, validation_alias="PAYMENT_AMOUNT_DECIMAL_PLACES"
+    )
+    payment_description_max_length: int = Field(
+        default=1000, gt=0, le=1000, validation_alias="PAYMENT_DESCRIPTION_MAX_LENGTH"
+    )
+    payment_metadata_max_bytes: int = Field(
+        default=16 * 1024, gt=0, validation_alias="PAYMENT_METADATA_MAX_BYTES"
+    )
+    payment_metadata_max_depth: int = Field(
+        default=32, gt=0, le=64, validation_alias="PAYMENT_METADATA_MAX_DEPTH"
+    )
+    webhook_url_max_length: int = Field(
+        default=2048, gt=0, le=2048, validation_alias="WEBHOOK_URL_MAX_LENGTH"
+    )
+
+    # RabbitMQ
     rabbitmq_url_raw: str | None = Field(default=None, validation_alias="RABBITMQ_URL")
     rabbitmq_host: str = Field(default="127.0.0.1", validation_alias="RABBITMQ_HOST")
     rabbitmq_port: int = Field(default=5672, gt=0, validation_alias="RABBITMQ_PORT")
@@ -65,6 +95,7 @@ class Settings(BaseSettings):
     )
     rabbitmq_vhost: str = Field(default="/", validation_alias="RABBITMQ_VHOST")
 
+    # Outbox relay
     outbox_poll_interval: float = Field(
         default=0.5, gt=0, validation_alias="OUTBOX_POLL_INTERVAL"
     )
@@ -75,10 +106,12 @@ class Settings(BaseSettings):
         default=7, gt=0, validation_alias="OUTBOX_RETENTION_DAYS"
     )
 
+    # Consumer
     consumer_prefetch: int = Field(
         default=10, gt=0, validation_alias="CONSUMER_PREFETCH"
     )
 
+    # Mock payment gateway
     gateway_delay_min: float = Field(
         default=2.0, ge=0, validation_alias="GATEWAY_DELAY_MIN"
     )
@@ -89,6 +122,7 @@ class Settings(BaseSettings):
         default=0.9, ge=0, le=1, validation_alias="GATEWAY_SUCCESS_RATE"
     )
 
+    # Retry and DLQ
     retry_max_attempts: int = Field(
         default=3, ge=1, validation_alias="RETRY_MAX_ATTEMPTS"
     )
@@ -96,6 +130,7 @@ class Settings(BaseSettings):
         default=2000, gt=0, validation_alias="RETRY_BASE_DELAY_MS"
     )
 
+    # Webhooks
     webhook_timeout: float = Field(
         default=5.0, gt=0, validation_alias="WEBHOOK_TIMEOUT"
     )

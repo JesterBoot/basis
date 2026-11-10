@@ -1,48 +1,30 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from sqlalchemy import select
+from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
-from sqlalchemy.ext.asyncio import AsyncSession as _AsyncSession
-from structlog import get_logger
+from sqlalchemy.ext.asyncio.session import AsyncSession as _AsyncSession
 
 from core.config import Settings, get_settings
+from core.custom_logging import get_logger
 
 logger = get_logger()
 _settings = get_settings()
 
 
-def _to_async_database_url(url: str) -> str:
-    if url.startswith("postgresql://"):
-        return url.replace("postgresql://", "postgresql+psycopg://", 1)
-    return url
-
-
-def _build_engine_kwargs(settings: Settings | None = None) -> dict[str, object]:
-    resolved_settings = settings or _settings
-    database_url = _to_async_database_url(resolved_settings.database_url)
-    kwargs: dict[str, object] = {
-        "url": database_url,
-        "echo": resolved_settings.db_echo,
-        "future": True,
-    }
-
-    kwargs.update(
-        {
-            "pool_size": resolved_settings.db_pool_size,
-            "max_overflow": resolved_settings.db_max_overflow,
-            "pool_timeout": resolved_settings.db_pool_timeout,
-            "pool_recycle": resolved_settings.db_pool_recycle,
-            "pool_pre_ping": resolved_settings.db_pool_pre_ping,
-        }
-    )
-
-    return kwargs
-
-
 def build_async_engine(settings: Settings | None = None) -> AsyncEngine:
-    return create_async_engine(**_build_engine_kwargs(settings))
+    resolved = settings or _settings
+    return create_async_engine(
+        url=resolved.database_url,
+        echo=resolved.db_echo,
+        future=True,
+        pool_size=resolved.db_pool_size,
+        max_overflow=resolved.db_max_overflow,
+        pool_timeout=resolved.db_pool_timeout,
+        pool_recycle=resolved.db_pool_recycle,
+        pool_pre_ping=resolved.db_pool_pre_ping,
+    )
 
 
 engine = build_async_engine()
@@ -52,17 +34,17 @@ class AsyncSession(_AsyncSession):
     async def commit(self) -> None:
         try:
             await super().commit()
-        except SQLAlchemyError as exc:
+        except SQLAlchemyError as e:
             await self.rollback()
-            logger.error("Commit failed, transaction rolled back", exc_info=exc)
+            logger.error("Commit failed, transaction rolled back", exc_info=e)
             raise
 
     async def execute(self, *args, **kwargs):
         try:
             return await super().execute(*args, **kwargs)
-        except SQLAlchemyError as exc:
+        except SQLAlchemyError as e:
             await self.rollback()
-            logger.error("Execute failed, transaction rolled back", exc_info=exc)
+            logger.error("Execute failed, transaction rolled back", exc_info=e)
             raise
 
     @asynccontextmanager
@@ -70,9 +52,9 @@ class AsyncSession(_AsyncSession):
         try:
             yield self
             await self.commit()
-        except Exception as exc:
+        except Exception as e:
             await self.rollback()
-            logger.error("Transaction failed, rolled back", exc_info=exc)
+            logger.error("Transaction failed, rolled back", exc_info=e)
             raise
 
 
@@ -97,9 +79,10 @@ async def tasks_session_context() -> AsyncIterator[AsyncSession]:
 async def check_conn_psql() -> bool:
     try:
         async with engine.begin() as conn:
-            await conn.execute(select(1))
-        logger.info("Connected to PostgreSQL/SQL database")
+            await conn.execute(text("SELECT 1"))
+        logger.info("Connected to PostgreSQL")
         return True
-    except Exception as exc:
-        logger.critical("Database is not available", exc_info=exc)
+    except (SQLAlchemyError, OSError) as e:
+        logger.critical("PostgreSQL is not available")
+        logger.debug(f"Raw DB connection error: {e}")
         return False
