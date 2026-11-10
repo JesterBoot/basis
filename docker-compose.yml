@@ -50,6 +50,7 @@ services:
       API_HOST: 0.0.0.0
       API_CONTAINER_PORT: "8080"
       DEBUG: ${DEBUG:-0}
+      API_KEY: ${API_KEY:-dev_key}
     ports:
       - "${API_PORT:-8080}:8080"
     volumes:
