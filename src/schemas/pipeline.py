@@ -1,3 +1,4 @@
+import uuid
 from enum import StrEnum
 
 from pydantic import BaseModel
@@ -12,3 +13,4 @@ class PipelineOutcome(StrEnum):
 class PipelineResult(BaseModel):
     outcome: PipelineOutcome
     reason: str | None = None
+    payment_id: uuid.UUID | None = None

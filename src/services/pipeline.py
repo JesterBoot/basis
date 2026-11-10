@@ -1,3 +1,5 @@
+import uuid
+
 from pydantic import ValidationError
 
 from core.config import Settings, get_settings
@@ -76,8 +78,17 @@ class PaymentPipeline:
             except WebhookPermanentError as exc:
                 return PipelineResult(outcome=PipelineOutcome.DONE, reason=str(exc))
             except WebhookTransientError as exc:
-                return PipelineResult(outcome=PipelineOutcome.RETRY, reason=str(exc))
+                return PipelineResult(
+                    outcome=PipelineOutcome.RETRY,
+                    reason=str(exc),
+                    payment_id=payment.payment_id,
+                )
         return PipelineResult(outcome=PipelineOutcome.DONE)
+
+    async def give_up(self, payment_id: uuid.UUID) -> None:
+        async with tasks_session_context() as session:
+            service = WebhookService(session, self.webhook_client, self.settings)
+            await service.mark_failed(payment_id)
 
     @staticmethod
     def _dead_letter(reason: str) -> PipelineResult:

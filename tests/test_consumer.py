@@ -10,6 +10,7 @@ import pytest
 import respx
 from faststream.rabbit import RabbitBroker
 from pydantic import SecretStr
+from sqlalchemy.exc import OperationalError
 
 from core.config import Settings
 from db.session import AsyncSession
@@ -179,3 +180,112 @@ async def test_payments_are_processed_concurrently(
 
     assert sorted(gateway.charged) == sorted(payment_ids)
     assert elapsed < 2.5
+
+
+async def next_dead_letter(
+    channel: aio_pika.abc.AbstractChannel, timeout: float = 10
+) -> aio_pika.abc.AbstractIncomingMessage:
+    dlq = await channel.get_queue(Queue.PAYMENTS_DLQ)
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        message = await dlq.get(no_ack=True, fail=False)
+        if message is not None:
+            return message
+        await asyncio.sleep(0.05)
+    raise AssertionError("No message reached the dead letter queue")
+
+
+async def test_failing_webhook_is_retried_then_dead_lettered(
+    session: AsyncSession,
+    broker: RabbitBroker,
+    amqp_channel: aio_pika.abc.AbstractChannel,
+    settings: Settings,
+    respx_mock: respx.MockRouter,
+) -> None:
+    route = respx_mock.post(WEBHOOK_URL).mock(return_value=httpx.Response(503))
+    gateway = FakeGateway(PaymentStatus.SUCCEEDED)
+
+    async with running_consumer(settings, gateway):
+        started = time.monotonic()
+        (payment_id,) = await create_and_relay(session, broker, settings)
+        dead = await next_dead_letter(amqp_channel)
+        elapsed = time.monotonic() - started
+        (payment,) = await wait_for(
+            session, [payment_id], lambda p: p.webhook_status is WebhookStatus.FAILED
+        )
+
+    assert route.call_count == 3
+    assert gateway.charged == [payment_id]
+    assert payment.status is PaymentStatus.SUCCEEDED
+    assert payment.webhook_attempts == 3
+    assert payment.webhook_last_error == "HTTP 503"
+    assert dead.headers["x-attempt"] == 3
+    assert dead.headers["x-death"][0]["reason"] == "rejected"
+    assert dead.message_id is not None
+    assert elapsed >= 0.9
+    for queue in (
+        Queue.PAYMENTS_NEW,
+        "payments.new.retry.300ms",
+        "payments.new.retry.600ms",
+    ):
+        assert await queue_depth(amqp_channel, queue) == 0
+
+
+async def test_webhook_recovers_on_retry(
+    session: AsyncSession,
+    broker: RabbitBroker,
+    amqp_channel: aio_pika.abc.AbstractChannel,
+    settings: Settings,
+    respx_mock: respx.MockRouter,
+) -> None:
+    route = respx_mock.post(WEBHOOK_URL).mock(
+        side_effect=[httpx.Response(503), httpx.Response(200)]
+    )
+
+    async with running_consumer(settings, FakeGateway()):
+        (payment_id,) = await create_and_relay(session, broker, settings)
+        (payment,) = await wait_for(
+            session,
+            [payment_id],
+            lambda p: p.webhook_status is WebhookStatus.DELIVERED,
+        )
+
+    assert route.call_count == 2
+    assert payment.webhook_attempts == 2
+    assert payment.webhook_last_error is None
+    assert await queue_depth(amqp_channel, Queue.PAYMENTS_DLQ) == 0
+
+
+class DatabaseDownPipeline:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def process(self, body: bytes) -> object:
+        self.calls += 1
+        raise OperationalError("SELECT 1", {}, Exception("database is down"))
+
+    async def give_up(self, payment_id: uuid.UUID) -> None:
+        raise AssertionError("must not give up on a payment it never loaded")
+
+
+async def test_database_outage_exhausts_retries_and_keeps_payment_pending(
+    session: AsyncSession,
+    broker: RabbitBroker,
+    amqp_channel: aio_pika.abc.AbstractChannel,
+    settings: Settings,
+) -> None:
+    pipeline = DatabaseDownPipeline()
+    consumer = create_consumer(settings, pipeline)  # type: ignore[arg-type]
+    await consumer.start()
+    try:
+        (payment_id,) = await create_and_relay(session, broker, settings)
+        dead = await next_dead_letter(amqp_channel)
+    finally:
+        await consumer.stop()
+
+    assert pipeline.calls == 3
+    assert dead.headers["x-attempt"] == 3
+    payment = await session.get(Payment, payment_id, populate_existing=True)
+    assert payment is not None
+    assert payment.status is PaymentStatus.PENDING
+    assert payment.webhook_status is WebhookStatus.PENDING
