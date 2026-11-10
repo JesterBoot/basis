@@ -3,9 +3,7 @@ import uuid
 
 from core.config import Settings
 from models import PaymentStatus
-
-WEBHOOK_URL = "https://merchant.example/hooks/payments"
-WEBHOOK_SECRET = "consumer-test-secret"
+from tests.support.webhooks import WEBHOOK_SECRET
 
 
 def consumer_settings(**overrides: object) -> Settings:

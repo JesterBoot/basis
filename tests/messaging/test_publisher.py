@@ -7,23 +7,15 @@ import pytest
 from faststream.rabbit import RabbitBroker
 from sqlalchemy import select
 
-from core.config import Settings
 from db.session import AsyncSession
 from messaging.names import Queue
-from messaging.publisher import EventPublisher, RabbitEventPublisher
+from messaging.publisher import RabbitEventPublisher
 from models import OutboxEvent
 from schemas.payment import PaymentCreate
-from services.outbox import OutboxRelayService
 from services.payments import PaymentService
+from tests.support.outbox import relay_service
 
 pytestmark = [pytest.mark.database, pytest.mark.rabbitmq]
-
-
-def relay_service(
-    session: AsyncSession, publisher: EventPublisher, batch_size: int
-) -> OutboxRelayService:
-    settings = Settings(_env_file=None, OUTBOX_BATCH_SIZE=batch_size)
-    return OutboxRelayService(session, publisher, settings)
 
 
 BODY = {

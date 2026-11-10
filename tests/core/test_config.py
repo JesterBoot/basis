@@ -182,3 +182,40 @@ def test_consumer_defaults(clean_env: pytest.MonkeyPatch) -> None:
     assert settings.consumer_graceful_timeout == 15
     assert settings.consumer_heartbeat_path == "/tmp/consumer.heartbeat"
     assert settings.consumer_heartbeat_interval == 10
+
+
+def test_default_settings_are_bootstrap_safe(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("DEBUG", raising=False)
+    for variable in (
+        "DATABASE_URL",
+        "DB_HOST",
+        "DB_PORT",
+        "DB_NAME",
+        "DB_USER",
+        "DB_PASSWORD",
+        "POSTGRES_HOST",
+        "POSTGRES_PORT",
+        "POSTGRES_DB",
+        "POSTGRES_USER",
+        "POSTGRES_PASSWORD",
+    ):
+        monkeypatch.delenv(variable, raising=False)
+
+    settings = Settings(_env_file=None)
+
+    assert settings.database_url == (
+        "postgresql+psycopg://basis:basis@127.0.0.1:5432/basis"
+    )
+    assert settings.debug is False
+
+
+def test_settings_can_be_overridden_by_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@db/basis_test")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.database_url == "postgresql+psycopg://user:pass@db/basis_test"

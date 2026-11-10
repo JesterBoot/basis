@@ -22,13 +22,11 @@ format:
 sort-imports:
 	cd src && uv run ruff check . --fix --select I
 
-test:
+test-all:
 	$(UV) run pytest
 
-test-all: test
-
 test-db:
-	$(UV) run pytest tests/test_database.py
+	$(UV) run pytest tests/db
 
 check:
 	$(UV) lock --check

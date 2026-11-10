@@ -3,7 +3,7 @@ import uuid
 from typing import Any
 
 import pytest
-from sqlalchemy import func, select, update
+from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
@@ -13,6 +13,7 @@ from schemas.payment import PaymentCreate
 from services.exceptions import IdempotencyKeyReusedError, PaymentNotFoundError
 from services.outbox import OutboxDataManager
 from services.payments import PaymentDataManager, PaymentService
+from tests.support.database import count_rows
 
 pytestmark = pytest.mark.database
 
@@ -27,10 +28,6 @@ BODY: dict[str, Any] = {
 
 def payload(**overrides: Any) -> PaymentCreate:
     return PaymentCreate.model_validate({**BODY, **overrides})
-
-
-async def count(session: AsyncSession, model: type[Payment] | type[OutboxEvent]) -> int:
-    return await session.scalar(select(func.count()).select_from(model)) or 0
 
 
 async def test_new_payment_is_stored_with_its_outbox_event(
@@ -76,8 +73,8 @@ async def test_same_key_and_body_replays_original_payment(
 
     assert second.replayed is True
     assert second.payment == first.payment
-    assert await count(session, Payment) == 1
-    assert await count(session, OutboxEvent) == 1
+    assert await count_rows(session, Payment) == 1
+    assert await count_rows(session, OutboxEvent) == 1
 
 
 async def test_same_key_with_different_body_is_rejected(session: AsyncSession) -> None:
@@ -87,8 +84,8 @@ async def test_same_key_with_different_body_is_rejected(session: AsyncSession) -
     with pytest.raises(IdempotencyKeyReusedError):
         await service.create(payload(amount="999.00"), "key-conflict")
 
-    assert await count(session, Payment) == 1
-    assert await count(session, OutboxEvent) == 1
+    assert await count_rows(session, Payment) == 1
+    assert await count_rows(session, OutboxEvent) == 1
 
 
 async def test_different_keys_create_separate_payments(session: AsyncSession) -> None:
@@ -97,8 +94,8 @@ async def test_different_keys_create_separate_payments(session: AsyncSession) ->
     second = await service.create(payload(), "key-b")
 
     assert first.payment.payment_id != second.payment.payment_id
-    assert await count(session, Payment) == 2
-    assert await count(session, OutboxEvent) == 2
+    assert await count_rows(session, Payment) == 2
+    assert await count_rows(session, OutboxEvent) == 2
 
 
 async def test_replay_returns_current_status(session: AsyncSession) -> None:
@@ -139,8 +136,8 @@ async def test_payment_is_rolled_back_when_outbox_write_fails(
         with pytest.raises(IntegrityError, match="aggregate_type"):
             await PaymentService(failing_session).create(payload(), "key-atomic")
 
-    assert await count(session, Payment) == 0
-    assert await count(session, OutboxEvent) == 0
+    assert await count_rows(session, Payment) == 0
+    assert await count_rows(session, OutboxEvent) == 0
 
 
 async def test_concurrent_requests_with_same_key_create_one_payment(
@@ -158,8 +155,8 @@ async def test_concurrent_requests_with_same_key_create_one_payment(
 
     assert len({payment_id for payment_id, _ in results}) == 1
     assert sum(1 for _, replayed in results if not replayed) == 1
-    assert await count(session, Payment) == 1
-    assert await count(session, OutboxEvent) == 1
+    assert await count_rows(session, Payment) == 1
+    assert await count_rows(session, OutboxEvent) == 1
 
 
 async def test_concurrent_conflicting_bodies_keep_only_the_winner(
@@ -183,7 +180,7 @@ async def test_concurrent_conflicting_bodies_keep_only_the_winner(
     stored = await session.scalar(select(Payment))
     assert stored is not None
     assert str(stored.amount) == winners[0]
-    assert await count(session, OutboxEvent) == 1
+    assert await count_rows(session, OutboxEvent) == 1
 
 
 async def test_get_returns_payment_details(session: AsyncSession) -> None:

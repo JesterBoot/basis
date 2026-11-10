@@ -1,68 +1,18 @@
 import asyncio
 import uuid
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
-from typing import Any
 
 import pytest
 from sqlalchemy import func, select, update
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from core.config import Settings
 from db.session import AsyncSession
-from messaging.publisher import EventPublisher
 from models import OutboxEvent
-from services.outbox import OutboxDataManager, OutboxRelayService
-from workers.outbox_relay import OutboxRelay
+from services.outbox import OutboxDataManager
+from tests.support.outbox import FakePublisher, add_events, relay_service
 
 pytestmark = pytest.mark.database
-
-
-def relay_service(
-    session: AsyncSession, publisher: EventPublisher, batch_size: int
-) -> OutboxRelayService:
-    settings = Settings(_env_file=None, OUTBOX_BATCH_SIZE=batch_size)
-    return OutboxRelayService(session, publisher, settings)
-
-
-class FakePublisher:
-    def __init__(self, fail_on: set[int] | None = None) -> None:
-        self.fail_on = fail_on or set()
-        self.calls = 0
-        self.published: list[uuid.UUID] = []
-
-    async def publish(self, event: OutboxEvent) -> None:
-        self.calls += 1
-        if self.calls in self.fail_on:
-            raise ConnectionError("broker is down")
-        self.published.append(event.id)
-
-
-async def add_events(
-    session: AsyncSession, count: int, **overrides: Any
-) -> list[OutboxEvent]:
-    events = [
-        OutboxEvent(
-            aggregate_type="payment",
-            aggregate_id=uuid.uuid4(),
-            event_type="payment.created",
-            routing_key="payments.new",
-            payload={"n": n},
-            **overrides,
-        )
-        for n in range(count)
-    ]
-    session.add_all(events)
-    await session.commit()
-    for offset, event in enumerate(events):
-        await session.execute(
-            update(OutboxEvent)
-            .where(OutboxEvent.id == event.id)
-            .values(next_attempt_at=func.now() - timedelta(seconds=count - offset))
-        )
-    await session.commit()
-    return events
 
 
 async def reload(session: AsyncSession, event_id: uuid.UUID) -> OutboxEvent:
@@ -245,57 +195,3 @@ async def test_backlog_counts_unpublished_events(session: AsyncSession) -> None:
     await service.relay_batch()
 
     assert await service.backlog() == 2
-
-
-async def test_relay_loop_drains_backlog_and_writes_heartbeat(
-    session: AsyncSession, tmp_path: Path
-) -> None:
-    await add_events(session, 5)
-    heartbeat = tmp_path / "relay.heartbeat"
-    settings = Settings(
-        _env_file=None,
-        OUTBOX_BATCH_SIZE=2,
-        OUTBOX_POLL_INTERVAL=0.05,
-        OUTBOX_HEARTBEAT_PATH=str(heartbeat),
-    )
-    publisher = FakePublisher()
-    relay = OutboxRelay(settings, publisher)
-    stop = asyncio.Event()
-
-    task = asyncio.create_task(relay.run(stop))
-    for _ in range(100):
-        if len(publisher.published) == 5:
-            break
-        await asyncio.sleep(0.02)
-    stop.set()
-    await asyncio.wait_for(task, timeout=2)
-
-    assert len(publisher.published) == 5
-    assert heartbeat.exists()
-
-
-async def test_relay_loop_survives_database_errors(
-    session: AsyncSession, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    settings = Settings(
-        _env_file=None,
-        OUTBOX_POLL_INTERVAL=0.01,
-        OUTBOX_HEARTBEAT_PATH=str(tmp_path / "hb"),
-    )
-    relay = OutboxRelay(settings, FakePublisher())
-    calls = 0
-    stop = asyncio.Event()
-
-    async def flaky_run_once() -> None:
-        nonlocal calls
-        calls += 1
-        if calls >= 3:
-            stop.set()
-        raise OperationalError("SELECT", {}, Exception("db down"))
-
-    monkeypatch.setattr(relay, "run_once", flaky_run_once)
-
-    await asyncio.wait_for(relay.run(stop), timeout=2)
-
-    assert calls >= 3
-    assert (tmp_path / "hb").exists()

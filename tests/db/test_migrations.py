@@ -1,28 +1,19 @@
 from collections.abc import Iterator
-from pathlib import Path
 
 import pytest
 from alembic import command
 from alembic.autogenerate import compare_metadata
-from alembic.config import Config
 from alembic.migration import MigrationContext
 from sqlalchemy import Engine, create_engine, inspect
 
 import models  # noqa: F401
 from core.config import Settings
 from db.base import Base
-from tests.support.database import build_test_database_url
+from tests.support.database import alembic_config, build_test_database_url
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DATABASE_URL = build_test_database_url(Settings().database_url)
 
 pytestmark = pytest.mark.database
-
-
-def _alembic_config() -> Config:
-    config = Config(str(PROJECT_ROOT / "src" / "alembic.ini"))
-    config.set_main_option("sqlalchemy.url", DATABASE_URL.replace("%", "%%"))
-    return config
 
 
 @pytest.fixture
@@ -89,7 +80,7 @@ def test_models_match_migrations(sync_engine: Engine) -> None:
 
 
 def test_downgrade_and_upgrade_round_trip(sync_engine: Engine) -> None:
-    config = _alembic_config()
+    config = alembic_config(DATABASE_URL)
     try:
         command.downgrade(config, "base")
         assert not {"payments", "outbox"} & set(inspect(sync_engine).get_table_names())

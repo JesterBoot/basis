@@ -1,9 +1,17 @@
+from pathlib import Path
+
+from alembic.config import Config
 from psycopg import Error as PsycopgError
 from psycopg import connect
 from psycopg.sql import SQL, Identifier
+from sqlalchemy import func, select
 from sqlalchemy.engine import make_url
 
+from db.session import AsyncSession
+from models import OutboxEvent, Payment
+
 TEST_DATABASE_SUFFIX = "_test"
+ALEMBIC_INI = Path(__file__).resolve().parents[2] / "src" / "alembic.ini"
 
 
 def build_test_database_url(database_url: str) -> str:
@@ -75,3 +83,15 @@ def ensure_test_database(database_url: str) -> None:
                     Identifier(test_database),
                 ),
             )
+
+
+def alembic_config(database_url: str) -> Config:
+    config = Config(str(ALEMBIC_INI))
+    config.set_main_option("sqlalchemy.url", database_url.replace("%", "%%"))
+    return config
+
+
+async def count_rows(
+    session: AsyncSession, model: type[Payment] | type[OutboxEvent]
+) -> int:
+    return await session.scalar(select(func.count()).select_from(model)) or 0

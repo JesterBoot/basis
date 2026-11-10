@@ -1,15 +1,12 @@
 import os
 from collections.abc import AsyncIterator, Iterator
-from pathlib import Path
 
 import aio_pika
 import pytest
 import pytest_asyncio
 from alembic import command
-from alembic.config import Config
 from dotenv import load_dotenv
 from faststream.rabbit import RabbitBroker
-from httpx import ASGITransport, AsyncClient
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
@@ -18,11 +15,11 @@ from core.config import Settings, get_settings
 from db import session as database_session
 from db.base import Base
 from db.session import AsyncSession, build_async_engine
-from main import create_app
 from messaging.broker import build_broker
 from messaging.topology import PaymentsTopology
 from tests.support.api import TEST_API_KEY
 from tests.support.database import (
+    alembic_config,
     build_test_database_url,
     database_name,
     ensure_test_database,
@@ -36,17 +33,12 @@ from tests.support.rabbitmq import (
     rabbitmq_available,
 )
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(override=False)
 os.environ["API_KEY"] = TEST_API_KEY
 os.environ["WEBHOOK_ALLOW_PRIVATE"] = "false"
 get_settings.cache_clear()
 BASE_DATABASE_URL = Settings().database_url
 DATABASE_URL = build_test_database_url(BASE_DATABASE_URL)
-
-
-def _sync_database_url() -> str:
-    return DATABASE_URL
 
 
 def postgres_available() -> bool:
@@ -72,12 +64,6 @@ def pytest_collection_modifyitems(
                 item.add_marker(pytest.mark.skip(reason=reason))
 
 
-def _alembic_config() -> Config:
-    config = Config(str(PROJECT_ROOT / "src" / "alembic.ini"))
-    config.set_main_option("sqlalchemy.url", DATABASE_URL.replace("%", "%%"))
-    return config
-
-
 @pytest.fixture(scope="session", autouse=True)
 def migrated_schema() -> Iterator[None]:
     if not postgres_available():
@@ -86,7 +72,7 @@ def migrated_schema() -> Iterator[None]:
 
     ensure_test_database(BASE_DATABASE_URL)
     get_settings.cache_clear()
-    config = _alembic_config()
+    config = alembic_config(DATABASE_URL)
     try:
         command.upgrade(config, "head")
         yield
@@ -166,17 +152,6 @@ async def session(
         await database_session.commit()
         yield database_session
         await database_session.rollback()
-
-
-@pytest_asyncio.fixture
-async def client() -> AsyncIterator[AsyncClient]:
-    transport = ASGITransport(app=create_app())
-    async with AsyncClient(
-        transport=transport,
-        base_url="http://testserver",
-        headers={"X-API-Key": TEST_API_KEY},
-    ) as http_client:
-        yield http_client
 
 
 @pytest.fixture(scope="session")

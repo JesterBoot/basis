@@ -22,8 +22,9 @@ from services.outbox import OutboxRelayService
 from services.payments import PaymentService
 from services.pipeline import PaymentPipeline
 from services.webhooks import WebhookClient
-from tests.support.consumer import WEBHOOK_SECRET, WEBHOOK_URL, FakeGateway
+from tests.support.consumer import FakeGateway
 from tests.support.rabbitmq import count_messages
+from tests.support.webhooks import WEBHOOK_SECRET, WEBHOOK_URL
 from workers.consumer import create_consumer
 
 pytestmark = [pytest.mark.database, pytest.mark.rabbitmq]

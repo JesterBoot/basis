@@ -1,7 +1,6 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from core.config import Settings
 from main import create_app
 
 
@@ -59,41 +58,3 @@ def test_readiness_returns_service_unavailable_before_successful_startup() -> No
 
     assert response.status_code == 503
     assert response.json()["detail"] == "not_ok"
-
-
-def test_default_settings_are_bootstrap_safe(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    # Validate application defaults independently from Docker Compose runtime settings.
-    monkeypatch.delenv("DEBUG", raising=False)
-    for variable in (
-        "DATABASE_URL",
-        "DB_HOST",
-        "DB_PORT",
-        "DB_NAME",
-        "DB_USER",
-        "DB_PASSWORD",
-        "POSTGRES_HOST",
-        "POSTGRES_PORT",
-        "POSTGRES_DB",
-        "POSTGRES_USER",
-        "POSTGRES_PASSWORD",
-    ):
-        monkeypatch.delenv(variable, raising=False)
-
-    settings = Settings(_env_file=None)
-
-    assert settings.database_url == (
-        "postgresql+psycopg://basis:basis@127.0.0.1:5432/basis"
-    )
-    assert settings.debug is False
-
-
-def test_settings_can_be_overridden_by_environment(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@db/basis_test")
-
-    settings = Settings(_env_file=None)
-
-    assert settings.database_url == "postgresql+psycopg://user:pass@db/basis_test"

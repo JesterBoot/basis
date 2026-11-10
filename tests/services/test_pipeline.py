@@ -16,7 +16,8 @@ from services.payments import PaymentService
 from services.pipeline import PaymentPipeline
 from services.processing import PaymentProcessingService
 from services.webhooks import WebhookClient
-from tests.support.consumer import WEBHOOK_URL, FakeGateway, consumer_settings
+from tests.support.consumer import FakeGateway, consumer_settings
+from tests.support.webhooks import WEBHOOK_URL
 
 pytestmark = pytest.mark.database
 
@@ -29,7 +30,7 @@ BODY = {
 
 
 @pytest_asyncio.fixture
-async def webhook_client() -> AsyncIterator[WebhookClient]:
+async def pipeline_webhook_client() -> AsyncIterator[WebhookClient]:
     async with WebhookClient.from_settings(consumer_settings()) as client:
         yield client
 
@@ -60,7 +61,7 @@ def pipeline(gateway: FakeGateway, client: WebhookClient) -> PaymentPipeline:
 @pytest.mark.parametrize("outcome", [PaymentStatus.SUCCEEDED, PaymentStatus.FAILED])
 async def test_new_payment_is_charged_and_notified(
     session: AsyncSession,
-    webhook_client: WebhookClient,
+    pipeline_webhook_client: WebhookClient,
     respx_mock: respx.MockRouter,
     outcome: PaymentStatus,
 ) -> None:
@@ -68,7 +69,7 @@ async def test_new_payment_is_charged_and_notified(
     route = respx_mock.post(WEBHOOK_URL).mock(return_value=httpx.Response(200))
     gateway = FakeGateway(outcome)
 
-    result = await pipeline(gateway, webhook_client).process(body)
+    result = await pipeline(gateway, pipeline_webhook_client).process(body)
 
     assert result.outcome is PipelineOutcome.DONE
     assert gateway.charged == [payment_id]
@@ -81,12 +82,14 @@ async def test_new_payment_is_charged_and_notified(
 
 
 async def test_duplicate_message_does_nothing(
-    session: AsyncSession, webhook_client: WebhookClient, respx_mock: respx.MockRouter
+    session: AsyncSession,
+    pipeline_webhook_client: WebhookClient,
+    respx_mock: respx.MockRouter,
 ) -> None:
     _, body = await create_event(session)
     route = respx_mock.post(WEBHOOK_URL).mock(return_value=httpx.Response(200))
     gateway = FakeGateway()
-    worker = pipeline(gateway, webhook_client)
+    worker = pipeline(gateway, pipeline_webhook_client)
     await worker.process(body)
 
     result = await worker.process(body)
@@ -97,14 +100,16 @@ async def test_duplicate_message_does_nothing(
 
 
 async def test_redelivery_after_status_update_only_sends_webhook(
-    session: AsyncSession, webhook_client: WebhookClient, respx_mock: respx.MockRouter
+    session: AsyncSession,
+    pipeline_webhook_client: WebhookClient,
+    respx_mock: respx.MockRouter,
 ) -> None:
     payment_id, body = await create_event(session)
     await PaymentProcessingService(session).complete(payment_id, PaymentStatus.FAILED)
     route = respx_mock.post(WEBHOOK_URL).mock(return_value=httpx.Response(204))
     gateway = FakeGateway(PaymentStatus.SUCCEEDED)
 
-    result = await pipeline(gateway, webhook_client).process(body)
+    result = await pipeline(gateway, pipeline_webhook_client).process(body)
 
     assert result.outcome is PipelineOutcome.DONE
     assert gateway.charged == []
@@ -115,12 +120,14 @@ async def test_redelivery_after_status_update_only_sends_webhook(
 
 
 async def test_transient_webhook_failure_asks_for_retry(
-    session: AsyncSession, webhook_client: WebhookClient, respx_mock: respx.MockRouter
+    session: AsyncSession,
+    pipeline_webhook_client: WebhookClient,
+    respx_mock: respx.MockRouter,
 ) -> None:
     payment_id, body = await create_event(session)
     respx_mock.post(WEBHOOK_URL).mock(return_value=httpx.Response(503))
 
-    result = await pipeline(FakeGateway(), webhook_client).process(body)
+    result = await pipeline(FakeGateway(), pipeline_webhook_client).process(body)
 
     assert result.outcome is PipelineOutcome.RETRY
     assert result.reason == "HTTP 503"
@@ -131,14 +138,16 @@ async def test_transient_webhook_failure_asks_for_retry(
 
 
 async def test_retry_after_transient_failure_skips_gateway(
-    session: AsyncSession, webhook_client: WebhookClient, respx_mock: respx.MockRouter
+    session: AsyncSession,
+    pipeline_webhook_client: WebhookClient,
+    respx_mock: respx.MockRouter,
 ) -> None:
     _, body = await create_event(session)
     respx_mock.post(WEBHOOK_URL).mock(
         side_effect=[httpx.Response(500), httpx.Response(200)]
     )
     gateway = FakeGateway()
-    worker = pipeline(gateway, webhook_client)
+    worker = pipeline(gateway, pipeline_webhook_client)
 
     first = await worker.process(body)
     second = await worker.process(body)
@@ -151,11 +160,13 @@ async def test_retry_after_transient_failure_skips_gateway(
 
 
 async def test_permanent_webhook_rejection_is_done(
-    session: AsyncSession, webhook_client: WebhookClient, respx_mock: respx.MockRouter
+    session: AsyncSession,
+    pipeline_webhook_client: WebhookClient,
+    respx_mock: respx.MockRouter,
 ) -> None:
     payment_id, body = await create_event(session)
     respx_mock.post(WEBHOOK_URL).mock(return_value=httpx.Response(404))
-    worker = pipeline(FakeGateway(), webhook_client)
+    worker = pipeline(FakeGateway(), pipeline_webhook_client)
 
     result = await worker.process(body)
     again = await worker.process(body)
@@ -186,18 +197,18 @@ async def test_permanent_webhook_rejection_is_done(
     ids=["garbage", "empty", "bad-uuids", "wrong-type"],
 )
 async def test_invalid_messages_are_dead_lettered(
-    session: AsyncSession, webhook_client: WebhookClient, body: bytes
+    session: AsyncSession, pipeline_webhook_client: WebhookClient, body: bytes
 ) -> None:
     gateway = FakeGateway()
 
-    result = await pipeline(gateway, webhook_client).process(body)
+    result = await pipeline(gateway, pipeline_webhook_client).process(body)
 
     assert result.outcome is PipelineOutcome.DEAD_LETTER
     assert gateway.charged == []
 
 
 async def test_unknown_payment_is_dead_lettered(
-    session: AsyncSession, webhook_client: WebhookClient
+    session: AsyncSession, pipeline_webhook_client: WebhookClient
 ) -> None:
     body = json.dumps(
         {
@@ -208,7 +219,7 @@ async def test_unknown_payment_is_dead_lettered(
         }
     ).encode()
 
-    result = await pipeline(FakeGateway(), webhook_client).process(body)
+    result = await pipeline(FakeGateway(), pipeline_webhook_client).process(body)
 
     assert result.outcome is PipelineOutcome.DEAD_LETTER
     assert result.reason is not None
