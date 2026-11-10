@@ -112,3 +112,8 @@ class PaymentRead(BaseModel):
     created_at: datetime
     updated_at: datetime
     processed_at: datetime | None
+
+
+class PaymentTransition(BaseModel):
+    payment: PaymentRead
+    changed: bool

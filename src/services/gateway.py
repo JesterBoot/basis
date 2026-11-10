@@ -14,8 +14,7 @@ Sleep = Callable[[float], Awaitable[None]]
 
 
 class PaymentGateway(Protocol):
-    async def charge(self, payment_id: uuid.UUID) -> PaymentStatus:
-        ...
+    async def charge(self, payment_id: uuid.UUID) -> PaymentStatus: ...
 
 
 class MockPaymentGateway:  # Эмулирую задержку и success rate

@@ -2,11 +2,11 @@ import uuid
 from typing import Annotated
 
 from fastapi import Depends
-from sqlalchemy import select
+from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert
 
 from db.session import AsyncSession, get_session
-from models import Payment
+from models import Payment, PaymentStatus
 from schemas.payment import (
     PaymentCreate,
     PaymentCreated,
@@ -61,6 +61,17 @@ class PaymentDataManager(BaseDataManager[Payment]):
     async def get_by_idempotency_key(self, idempotency_key: str) -> Payment | None:
         return await self.get_one(
             select(Payment).where(Payment.idempotency_key == idempotency_key)
+        )
+
+    async def mark_processed(
+        self, payment_id: uuid.UUID, status: PaymentStatus
+    ) -> Payment | None:
+        return await self.get_one(
+            update(Payment)
+            .where(Payment.id == payment_id, Payment.status == PaymentStatus.PENDING)
+            .values(status=status, processed_at=func.now())
+            .returning(Payment)
+            .execution_options(populate_existing=True)
         )
 
     async def insert_if_absent(
