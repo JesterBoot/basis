@@ -6,7 +6,7 @@ import pytest_asyncio
 from alembic import command
 from alembic.config import Config
 from dotenv import load_dotenv
-from sqlalchemy import delete, func, select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
 from core.config import Settings, get_settings

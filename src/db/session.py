@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
-from sqlmodel.ext.asyncio.session import AsyncSession as _AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession as _AsyncSession
 from structlog import get_logger
 
 from core.config import Settings, get_settings
@@ -59,18 +59,10 @@ class AsyncSession(_AsyncSession):
 
     async def execute(self, *args, **kwargs):
         try:
-            return await super().exec(*args, **kwargs)
+            return await super().execute(*args, **kwargs)
         except SQLAlchemyError as exc:
             await self.rollback()
             logger.error("Execute failed, transaction rolled back", exc_info=exc)
-            raise
-
-    async def exec(self, *args, **kwargs):
-        try:
-            return await super().exec(*args, **kwargs)
-        except SQLAlchemyError as exc:
-            await self.rollback()
-            logger.error("Exec failed, transaction rolled back", exc_info=exc)
             raise
 
     @asynccontextmanager

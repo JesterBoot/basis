@@ -20,8 +20,10 @@ format:
 sort-imports:
 	cd src && uv run ruff check . --fix --select I
 
-test-all:
+test:
 	$(UV) run pytest
+
+test-all: test
 
 test-db:
 	$(UV) run pytest tests/test_database.py
