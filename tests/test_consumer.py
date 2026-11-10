@@ -23,6 +23,7 @@ from services.payments import PaymentService
 from services.pipeline import PaymentPipeline
 from services.webhooks import WebhookClient
 from tests.support.consumer import WEBHOOK_SECRET, WEBHOOK_URL, FakeGateway
+from tests.support.rabbitmq import count_messages
 from workers.consumer import create_consumer
 
 pytestmark = [pytest.mark.database, pytest.mark.rabbitmq]
@@ -101,11 +102,6 @@ async def wait_for(
         await asyncio.sleep(0.05)
 
 
-async def queue_depth(channel: aio_pika.abc.AbstractChannel, name: str) -> int:
-    queue = await channel.declare_queue(name, passive=True)
-    return queue.declaration_result.message_count or 0
-
-
 async def test_payment_flows_from_outbox_to_webhook(
     session: AsyncSession,
     broker: RabbitBroker,
@@ -128,8 +124,8 @@ async def test_payment_flows_from_outbox_to_webhook(
     assert payment.processed_at is not None
     assert gateway.charged == [payment_id]
     assert route.call_count == 1
-    assert await queue_depth(amqp_channel, Queue.PAYMENTS_NEW) == 0
-    assert await queue_depth(amqp_channel, Queue.PAYMENTS_DLQ) == 0
+    assert await count_messages(amqp_channel, Queue.PAYMENTS_NEW) == 0
+    assert await count_messages(amqp_channel, Queue.PAYMENTS_DLQ) == 0
 
 
 async def test_poison_message_goes_to_dead_letter_queue(
@@ -228,7 +224,7 @@ async def test_failing_webhook_is_retried_then_dead_lettered(
         "payments.new.retry.300ms",
         "payments.new.retry.600ms",
     ):
-        assert await queue_depth(amqp_channel, queue) == 0
+        assert await count_messages(amqp_channel, queue) == 0
 
 
 async def test_webhook_recovers_on_retry(
@@ -253,7 +249,7 @@ async def test_webhook_recovers_on_retry(
     assert route.call_count == 2
     assert payment.webhook_attempts == 2
     assert payment.webhook_last_error is None
-    assert await queue_depth(amqp_channel, Queue.PAYMENTS_DLQ) == 0
+    assert await count_messages(amqp_channel, Queue.PAYMENTS_DLQ) == 0
 
 
 class DatabaseDownPipeline:
@@ -323,7 +319,7 @@ async def test_graceful_stop_finishes_in_flight_payment(
     assert payment is not None
     assert payment.status is PaymentStatus.SUCCEEDED
     assert payment.webhook_status is WebhookStatus.DELIVERED
-    assert await queue_depth(amqp_channel, Queue.PAYMENTS_NEW) == 0
+    assert await count_messages(amqp_channel, Queue.PAYMENTS_NEW) == 0
 
 
 async def test_unfinished_message_is_redelivered_and_processed_once(
@@ -365,4 +361,4 @@ async def test_unfinished_message_is_redelivered_and_processed_once(
     assert final.status is PaymentStatus.SUCCEEDED
     assert fast_gateway.charged == [payment_id]
     assert route.call_count == 1
-    assert await queue_depth(amqp_channel, Queue.PAYMENTS_NEW) == 0
+    assert await count_messages(amqp_channel, Queue.PAYMENTS_NEW) == 0

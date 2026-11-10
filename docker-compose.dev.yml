@@ -1,0 +1,31 @@
+services:
+  db:
+    container_name: basis-db
+    ports:
+      - "${POSTGRES_HOST_PORT:-5432}:5432"
+
+  rabbitmq:
+    container_name: basis-rabbitmq
+    ports:
+      - "${RABBITMQ_PORT:-5672}:5672"
+      - "${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
+
+  api:
+    ports:
+      - "${API_PORT:-8080}:8080"
+    volumes:
+      - ./src:/app/src
+
+  outbox-relay:
+    volumes:
+      - ./src:/app/src
+
+  consumer:
+    volumes:
+      - ./src:/app/src
+
+  webhook-sink:
+    ports:
+      - "${WEBHOOK_SINK_PORT:-9000}:9000"
+    volumes:
+      - ./src:/app/src

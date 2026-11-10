@@ -1,5 +1,5 @@
 x-db-env: &db-env
-  POSTGRES_HOST: basis-db
+  POSTGRES_HOST: db
   POSTGRES_PORT: "5432"
   POSTGRES_DB: ${POSTGRES_DB:-basis}
   POSTGRES_USER: ${POSTGRES_USER:-basis}
@@ -37,6 +37,9 @@ x-relay-env: &relay-env
   OUTBOX_PURGE_INTERVAL_SECONDS: ${OUTBOX_PURGE_INTERVAL_SECONDS:-3600}
   OUTBOX_BACKLOG_LOG_INTERVAL_SECONDS: ${OUTBOX_BACKLOG_LOG_INTERVAL_SECONDS:-30}
 
+x-webhook-env: &webhook-env
+  WEBHOOK_SECRET: ${WEBHOOK_SECRET:-dev-webhook-secret}
+
 x-consumer-env: &consumer-env
   DB_POOL_SIZE: "12"
   DB_MAX_OVERFLOW: "0"
@@ -47,20 +50,16 @@ x-consumer-env: &consumer-env
   GATEWAY_DELAY_MIN: ${GATEWAY_DELAY_MIN:-2}
   GATEWAY_DELAY_MAX: ${GATEWAY_DELAY_MAX:-5}
   GATEWAY_SUCCESS_RATE: ${GATEWAY_SUCCESS_RATE:-0.9}
-  WEBHOOK_SECRET: ${WEBHOOK_SECRET:-dev-webhook-secret}
   WEBHOOK_ALLOW_PRIVATE: ${WEBHOOK_ALLOW_PRIVATE:-true}
   WEBHOOK_TIMEOUT: ${WEBHOOK_TIMEOUT:-5}
 
 services:
   db:
     image: postgres:16-alpine
-    container_name: basis-db
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-basis}
       POSTGRES_USER: ${POSTGRES_USER:-basis}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-basis}
-    ports:
-      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -71,14 +70,10 @@ services:
 
   rabbitmq:
     image: rabbitmq:3.13-management-alpine
-    container_name: basis-rabbitmq
     hostname: rabbitmq
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-basis}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-basis}
-    ports:
-      - "${RABBITMQ_PORT:-5672}:5672"
-      - "${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
     healthcheck:
@@ -96,10 +91,6 @@ services:
         condition: service_healthy
     environment:
       <<: [*db-env, *api-env]
-    ports:
-      - "${API_PORT:-8080}:8080"
-    volumes:
-      - ./src:/app/src
     healthcheck:
       test:
         [
@@ -125,8 +116,6 @@ services:
         condition: service_healthy
     environment:
       <<: [*db-env, *rabbitmq-env, *worker-env, *relay-env]
-    volumes:
-      - ./src:/app/src
     healthcheck:
       test:
         [
@@ -152,9 +141,7 @@ services:
       rabbitmq:
         condition: service_healthy
     environment:
-      <<: [*db-env, *rabbitmq-env, *worker-env, *consumer-env]
-    volumes:
-      - ./src:/app/src
+      <<: [*db-env, *rabbitmq-env, *worker-env, *webhook-env, *consumer-env]
     healthcheck:
       test:
         [
@@ -167,6 +154,33 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
+
+  webhook-sink:
+    build:
+      context: .
+    entrypoint:
+      [
+        "/app/.venv/bin/uvicorn",
+        "tools.webhook_sink:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "9000",
+      ]
+    environment:
+      <<: *webhook-env
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "/app/.venv/bin/python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9000/health')",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
 volumes:
   postgres_data:

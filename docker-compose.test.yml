@@ -1,0 +1,24 @@
+name: basis-test
+
+services:
+  api:
+    environment:
+      API_KEY: ${E2E_API_KEY:-e2e-api-key}
+      DEBUG: "0"
+    ports:
+      - "${E2E_API_PORT:-18080}:8080"
+
+  outbox-relay:
+    environment:
+      DEBUG: "0"
+
+  consumer:
+    environment:
+      DEBUG: "0"
+      WEBHOOK_SECRET: ${E2E_WEBHOOK_SECRET:-e2e-webhook-secret}
+
+  webhook-sink:
+    environment:
+      WEBHOOK_SECRET: ${E2E_WEBHOOK_SECRET:-e2e-webhook-secret}
+    ports:
+      - "${E2E_SINK_PORT:-19000}:9000"

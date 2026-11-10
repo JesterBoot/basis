@@ -47,6 +47,10 @@ class PaymentService(BaseService[Payment]):
             payment=PaymentCreated.model_validate(existing), replayed=True
         )
 
+    async def reopen_webhook(self, payment_id: uuid.UUID) -> bool:
+        async with self.session.transaction():
+            return await self.data_manager.reopen_failed_webhook(payment_id)
+
     async def get(self, payment_id: uuid.UUID) -> PaymentRead:
         payment = await self.data_manager.get_by_pk(payment_id)
         if payment is None:
@@ -97,6 +101,19 @@ class PaymentDataManager(BaseDataManager[Payment]):
             .execution_options(synchronize_session=False)
         )
         return attempts or 0
+
+    async def reopen_failed_webhook(self, payment_id: uuid.UUID) -> bool:
+        reopened = await self.session.scalar(
+            update(Payment)
+            .where(
+                Payment.id == payment_id,
+                Payment.webhook_status == WebhookStatus.FAILED,
+            )
+            .values(webhook_status=WebhookStatus.PENDING)
+            .returning(Payment.id)
+            .execution_options(synchronize_session=False)
+        )
+        return reopened is not None
 
     async def mark_webhook_failed(self, payment_id: uuid.UUID) -> None:
         await self.session.execute(

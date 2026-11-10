@@ -1,6 +1,7 @@
 import os
 from urllib.parse import quote
 
+import aio_pika
 import httpx
 
 from core.config import Settings
@@ -63,3 +64,13 @@ def list_bindings(settings: Settings, vhost: str) -> set[tuple[str, str, str]]:
             for binding in response.json()
             if binding["source"]
         }
+
+
+async def count_messages(channel: aio_pika.abc.AbstractChannel, queue_name: str) -> int:
+    queue = await channel.get_queue(queue_name)
+    held = []
+    while (message := await queue.get(no_ack=False, fail=False)) is not None:
+        held.append(message)
+    for message in held:
+        await message.nack(requeue=True)
+    return len(held)
